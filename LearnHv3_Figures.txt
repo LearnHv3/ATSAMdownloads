@@ -1,30 +1,260 @@
 
 /*********************************************************/
 /*********************************************************/
-/*    Figure 5-11.  clks.h                               */
+/*    Figure 5-2.  clks.h                               */
 /*********************************************************/
 /*********************************************************/
 
-/**********************************************************************  MPLAB Harmony Application Header File  File Name:    clks.h***********************************************************************/#ifndef _CLKS_H#define _CLKS_H//********************************************************************// Section: Type Definitions - CLKS module//********************************************************************typedef enum{    /* Application's state machine's initial state. */    CLKS_STATE_INIT=0,    /* TODO: Define states used by the application state machine. */    CLKS_STATE_EVENT,    CLKS_STATE_IDLE} CLK_STATES;typedef struct{    CLK_STATES clkstate;   // the current state    int idlecnt;   // counts the number of times in the CLKS_STATE_IDLE    unsigned int cpucycles;  // records the CPU cycles every second    unsigned int last_CP0;  // the last core timer count    int idlecntpersec;      // the idle count at the end of every second} CLKDATA;typedef struct{    int ticks;          // counts timer interrupts    int timeout;        // number of ticks for timeout    void (*action)();	// the method to execute when a timeout occurs} SUBCLK;//********************************************************************// Section: Application Initialization and State Machine Functions//********************************************************************void CLKS_Initialize ( void );  // This routine is called from APPS_Initialize() void CLKS_SM( void );    // This routine is called from APP_Tasks()void clk1000(void);      // the 1-second clockvoid clk100(void);       // the 100 msecond clock#endif /* _CLKS_H */
+/**********************************************************************
+  MPLAB Harmony Application Header File
+  File Name:
+    clks.h
+***********************************************************************/
+#ifndef _CLKS_H
+#define _CLKS_H
+//********************************************************************
+// Section: Type Definitions - CLKS module
+//********************************************************************
+
+typedef enum
+{
+    /* Application's state machine's initial state. */
+    CLKS_STATE_INIT=0,
+    /* TODO: Define states used by the application state machine. */
+    CLKS_STATE_EVENT,
+    CLKS_STATE_IDLE
+} CLK_STATES;
+
+typedef struct
+{
+    CLK_STATES clkstate;   // the current state
+    int idlecntpersec;      // the idle count at the end of every second
+} CLKDATA;
+
+typedef struct
+{
+    int ticks;          // counts timer interrupts
+    int timeout;        // number of ticks for timeout
+    void (*action)();	// the method to execute when a timeout occurs
+} SUBCLK;
+
+//********************************************************************
+// Section: Application Initialization and State Machine Functions
+//********************************************************************
+void CLKS_Initialize ( void );  // This routine is called from APP_Initialize() 
+void CLKS_SM( void );    // This routine is called from APP_Tasks()
+void clk1000(void);      // the 1-second clock
+void clk100(void);       // the 100 msecond clock
+
+#endif /* _CLKS_H */
 
 /*********************************************************/
 /*********************************************************/
-/*    Figure 5-13.  clks.c                               */
+/*    Figure 5-4.  clks.c                               */
 /*********************************************************/
 /*********************************************************/
 
-/********************************************************************  MPLAB Harmony Application Source File    File Name:    clks.c ********************************************************************/#include "app.h"#define LED4BLACK   {LED4B_Set();LED4G_Set();LED4R_Set();}#define LED4WHITE   {LED4B_Clear();LED4G_Clear();LED4R_Clear();}#define LED4RED     {LED4B_Set();LED4G_Set();LED4R_Clear();}#define LED4GREEN   {LED4B_Set();LED4G_Clear();LED4R_Set();}#define LED4BLUE    {LED4B_Clear();LED4G_Set();LED4R_Set();}#define LED4YELLOW  {LED4B_Set();LED4G_Clear();LED4R_Clear();}#define LED4MAGENTA {LED4B_Clear();LED4G_Set();LED4R_Clear();}#define LED4CYAN    {LED4B_Clear();LED4G_Clear();LED4R_Set();}//********************************************************************// Section: Global Data Definitions//********************************************************************extern APPDATA appData;CLKDATA clkData;SUBCLK clkCfg[] = {// ticks, timeout, action routine{ 0, 1000, clk1000},{ 0, 100,  clk100},{ 0, 0, NULL}};//********************************************************************// Section: Application Callback Functions//********************************************************************void TMR_CallbackFn (uint32_t status,uintptr_t context );void TMR_CallbackFn (uint32_t status,uintptr_t context ){    /* this will only happen after the timer is started */    clkData.clkstate = CLKS_STATE_EVENT; }//********************************************************************// Section: Application Initialization and State Machine Functions//********************************************************************void CLKS_Initialize ( void ){        clkData.cpucycles = 0;    clkData.last_CP0 = 0;    clkData.idlecnt = 0;    clkData.idlecntpersec = 0;    clkData.clkstate = CLKS_STATE_INIT;     }#define PERIODMS  99999     // microseconds*100 = 1  ms for a 100 MHz CPUvoid CLKS_SM ( void ){    SUBCLK *p;		// ptr to a SUBCLK object    switch(clkData.clkstate)    {        case CLKS_STATE_INIT:            // Register the timer callback function             TMR2_Stop();            TMR2_CallbackRegister(TMR_CallbackFn, NULL);                            TMR2_PeriodSet(PERIODMS); // Set the period (ms)                            TMR2_Start();           // Start the timer                        LogMsg("The 1 millisecond timer has started");            clkData.clkstate = CLKS_STATE_IDLE;             break;                    case CLKS_STATE_EVENT:            // update the msec counter used in LogMsgs            appData.msec_cnt++;                        // check all the clock timers             // execute an action if a timeout occurred            for(p = clkCfg; p->timeout > 0; p++)            {                p->ticks++;                if(p->ticks >= p->timeout)                {                    p->action();   // execute this routine                    p->ticks = 0;                }            }            clkData.clkstate = CLKS_STATE_IDLE;             break;                   case CLKS_STATE_IDLE:    // count the number of times through this loop            clkData.idlecnt++;                                              break;                }}void clk1000(void){    static int substate;    clkData.cpucycles = _CP0_GET_COUNT() - clkData.last_CP0;   // cycles/sec    clkData.last_CP0 = _CP0_GET_COUNT();    // store the current value    clkData.idlecntpersec = clkData.idlecnt;    // store the idle counter    clkData.idlecnt = 0;                        // reset the idle counter    // cycle the multicolored LED through all the combos    substate++;    if(substate == 1) LED4WHITE    else if(substate == 2) LED4RED    else if(substate == 3) LED4GREEN    else if(substate == 4) LED4BLUE    else if(substate == 5) LED4YELLOW    else if(substate == 6) LED4CYAN    else if(substate == 7) LED4MAGENTA    else LED4BLACK    if(substate > 7) substate = 0;        // toggle the LEDs while button is not pressed    if(SW4_Get())      {        LED1_Toggle();        LED2_Toggle();        LED3_Toggle();    }            // update the global time variables    appData.unixsecs++;             // update the UNIX time by 1 second    appData.msec_cnt = 0;           // synch with the unixsecs update//  LogMsg("One second elapsed");   // add a log message to the circular buffer  }// routine to monitor the each switch and set the associated LED accordinglyvoid clk100(void){    if(!SW1_Get())  LED1_Toggle();    if(!SW2_Get())  LED2_Toggle();    if(!SW3_Get())  LED3_Toggle();    if(!SW4_Get())      {        LED1_Set();     // OFF        LED2_Set();     // OFF        LED3_Set();     // OFF    }}/***************************************************************** End of File *//*********************************************************/
+/********************************************************************
+  MPLAB Harmony Application Source File
+  
+  File Name:
+    clks.c
+ ********************************************************************/
+#include "app.h"
+#include "peripheral/systick/plib_systick.h"
+
+//********************************************************************
+// Section: Global Data Definitions
+//********************************************************************
+
+extern APPDATA appData;
+extern SYSTICK_OBJECT systick;
+CLKDATA clkData;
+SUBCLK clkCfg[] = {
+// ticks, timeout, action routine
+{ 0, 1000, clk1000},
+{ 0, 100,  clk100},
+{ 0, 0, NULL}
+};
+
+//********************************************************************
+// Section: Application Callback Functions
+//********************************************************************
+/* This function is called after the sysTick timer expires */
+void SYSTICK_EventHandler(uintptr_t context);
+void SYSTICK_EventHandler(uintptr_t context)
+{
+    /* this will only happen after the timer is started */
+    clkData.clkstate = CLKS_STATE_EVENT; 
+}
+
+//********************************************************************
+// Section: Application Initialization and State Machine Functions
+//********************************************************************
+
+void CLKS_Initialize ( void )
+{    
+    clkData.idlecntpersec = 0;
+    clkData.clkstate = CLKS_STATE_INIT;     
+}
+
+void CLKS_SM ( void )
+{
+    SUBCLK *p;		// ptr to a SUBCLK object
+    switch(clkData.clkstate)
+    {
+        case CLKS_STATE_INIT:
+            SYSTICK_TimerCallbackSet(&SYSTICK_EventHandler, (uintptr_t) NULL);
+            SYSTICK_TimerStart();  // Start the timer            
+            LogMsg("The 1 millisecond timer has started");
+            clkData.clkstate = CLKS_STATE_IDLE; 
+            break;
+            
+        case CLKS_STATE_EVENT:
+            // update the msec counter used in LogMsgs
+            appData.msec_cnt++;
+            
+            // check all the clock timers 
+            // execute an action if a timeout occurred
+            for(p = clkCfg; p->timeout > 0; p++)
+            {
+                p->ticks++;
+                if(p->ticks >= p->timeout)
+                {
+                    p->action();   // execute this routine
+                    p->ticks = 0;
+                }
+            }
+            clkData.clkstate = CLKS_STATE_IDLE; 
+            break;
+            
+       case CLKS_STATE_IDLE:    // count the number of times through this loop
+            clkData.idlecntpersec++;                                  
+            break;            
+    }
+}
+
+void clk1000(void)
+{  
+
+    // toggle the LEDs while button is not pressed
+    if(SW1_Get())
+    {
+        LEDY_Toggle();
+    }
+   
+    // update the global time variables
+    appData.unixsecs++;             // update the UNIX time by 1 second
+    clkData.idlecntpersec = 0;    // store the idle counter
+    appData.msec_cnt = 0;           // synch with the unixsecs update
+//  LogMsg("One second elapsed");   // add a log message to the circular buffer  
+}
+
+// routine to monitor the switch and set the associated LED accordingly
+void clk100(void)
+{
+    // toggle the LEDs while button is pressed
+    if(!SW1_Get())
+    {
+        LEDY_Toggle();
+    }
+}
+
+/*****************************************************************
+ End of File
+ */
+/*********************************************************/
 /*********************************************************/
-/*    Figure 5-14.  app.h – MZEF_base (Chapter 5)        */
+/*    Figure 5-5.  app.h – MZEF_base (Chapter 5)        */
 /*********************************************************/
 /*********************************************************/
 
-/********************************************************************  MPLAB Harmony Application Header File  Company:    Microchip Technology Inc.  File Name:    app.h*********************************************************************/#ifndef _APP_H#define _APP_H#include <stdint.h>#include <stdbool.h>#include <stddef.h>#include <stdlib.h>#include <string.h>#include <stdio.h>#include <stdarg.h>#include "definitions.h"#include "configuration.h"#include "clks.h"#ifdef __cplusplus  // Provide C++ Compatibilityextern "C" {#endif    #define MAXMSGS  50#define MSGCOLS  120#define BOY2015  1420070400UL	//UNIX time at 1/1/2015 00:00:00// *******************************************************************// Section: State Definitions and State Data// *******************************************************************typedef struct{    int msec_cnt;                   // used in LogMsg    unsigned int unixsecs;          // used in LogMsg    char logmessages[MAXMSGS][MSGCOLS+1]; // space for MAXMSGS messages    int msgput;                // index of next message to be added    int msgget;         // index of next message to write to a com port } APPDATA;#undef SYS_DEBUG_PRINT#define SYS_DEBUG_PRINT(level, fmt, ...)    do { if((level) <= SYS_ERROR_DEBUG) LogMsg(fmt, ##__VA_ARGS__); } while (0)#undef SYS_ERROR_PRINT#define SYS_ERROR_PRINT(level, fmt, ...)    do { if((level) <= SYS_ERROR_DEBUG) LogMsg(fmt, ##__VA_ARGS__); } while (0)#undef SYS_ERROR#define SYS_ERROR(level,fmt, ...)   do { if((level) <= SYS_ERROR_DEBUG) LogMsg(fmt, ##__VA_ARGS__); } while (0)#undef SYS_CONSOLE_PRINT#define SYS_CONSOLE_PRINT(fmt, ...)    do { LogMsg(fmt, ##__VA_ARGS__); } while (0)#undef SYS_CONSOLE_MESSAGE#define SYS_CONSOLE_MESSAGE(fmt, ...)    do { LogMsg(fmt, ##__VA_ARGS__); } while (0)// *******************************************************************// Section: Prototypes// *******************************************************************void APP_Initialize ( void );void APP_Tasks( void );void LogMsg(const char *format, ...);void get_dt(char *str);#endif /* _APP_H */#ifdef __cplusplus}#endif/******************************************************************** End of File *//*********************************************************/
+/********************************************************************
+  MPLAB Harmony Application Header File
+
+  Company:
+    Microchip Technology Inc.
+
+  File Name:
+    app.h
+
+*********************************************************************/
+
+#ifndef _APP_H
+#define _APP_H
+
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdarg.h>
+#include "definitions.h"
+#include "configuration.h"
+#include "clks.h"
+
+#ifdef __cplusplus  // Provide C++ Compatibility
+extern "C" {
+#endif
+    
+#define MAXMSGS  50
+#define MSGCOLS  120
+#define BOY2015  1420070400UL	//UNIX time at 1/1/2015 00:00:00
+
+// *******************************************************************
+// Section: State Definitions and State Data
+// *******************************************************************
+
+typedef struct
+{
+    int msec_cnt;                   // used in LogMsg
+    unsigned int unixsecs;          // used in LogMsg
+    char logmessages[MAXMSGS][MSGCOLS+1]; // space for MAXMSGS messages
+    int msgput;                // index of next message to be added
+    int msgget;         // index of next message to write to a com port 
+} APPDATA;
+
+
+#undef SYS_DEBUG_PRINT
+#define SYS_DEBUG_PRINT(level, fmt, ...)    do { if((level) <= SYS_ERROR_DEBUG) LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+#undef SYS_ERROR_PRINT
+#define SYS_ERROR_PRINT(level, fmt, ...)    do { if((level) <= SYS_ERROR_DEBUG) LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+#undef SYS_ERROR
+#define SYS_ERROR(level,fmt, ...)   do { if((level) <= SYS_ERROR_DEBUG) LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+#undef SYS_CONSOLE_PRINT
+#define SYS_CONSOLE_PRINT(fmt, ...)    do { LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+#undef SYS_CONSOLE_MESSAGE
+#define SYS_CONSOLE_MESSAGE(fmt, ...)    do { LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+// *******************************************************************
+// Section: Prototypes
+// *******************************************************************
+void APP_Initialize ( void );
+void APP_Tasks( void );
+void LogMsg(const char *format, ...);
+void get_dt(char *str);
+
+#endif /* _APP_H */
+
+#ifdef __cplusplus
+}
+#endif
+
+/********************************************************************
+ End of File
+ */
+/*********************************************************/
 /*********************************************************/
-/*    Figure 5-15.  app.c – MZEF_base (Chapter 5)        */
+/*    Figure 5-6.  app.c – MZEF_base (Chapter 5)        */
 /*********************************************************/
 /*********************************************************/
-/*********************************************************************
+
+/*********************************************************************
   MPLAB Harmony Application Source File
 
   File Name:
@@ -178,6 +408,7 @@ void get_dt(char *str)
 /*******************************************************************
  End of File
  */
+
 /*********************************************************/
 /*********************************************************/
 /*    Figure 6-27.  cdc.h                                */
@@ -370,7 +601,13 @@ void respond(char *request)
 /*    Figure 8-9.  tcpclient.h                           */
 /*********************************************************/
 /*********************************************************/
-/**********************************************************  MPLAB Harmony Application Header File   File Name:    tcpclient.h***********************************************************/  #ifndef _TCPCLIENT_H#define _TCPCLIENT_H// *********************************************************// Section: Included Files// *********************************************************// *********************************************************// Section: Type Definitions// *********************************************************// *********************************************************/* Application states  Summary:    Application states enumeration  Description:    This enumeration defines the valid application states.  */typedef enum{    /* the do-nothing state */    TCPCLIENT_IDLE = 0,    /* Waits for the initialization of the TCP/IP stack to complete. */    TCPCLIENT_WAIT_INIT,                /* Do TCP connections. */    TCPCLIENT_WAITFOR_CONNECTION,    /* Get connections and send data */    TCPCLIENT_SERVING_CONNECTION,                TCPCLIENT_CLOSING_CONNECTION,                                    } TCPCLIENT_STATES;/******* Application Data *********/typedef struct{    /* Application's current state */    TCPCLIENT_STATES state;    TCP_SOCKET socket;    TCP_SOCKET_INFO sktinfo;} TCPCLIENTDATA;void TCPCLIENT_Initialize ( void );void TCPCLIENT_SM ( void );#endif /* _TCPCLIENT_H *//**************************************************** End of File *//**********************************************************
+/**********************************************************  MPLAB Harmony Application Header File   File Name:    tcpclient.h***********************************************************/  #ifndef _TCPCLIENT_H#define _TCPCLIENT_H// *********************************************************// Section: Included Files// *********************************************************// *********************************************************// Section: Type Definitions// *********************************************************// *********************************************************/* Application states  Summary:    Application states enumeration  Description:    This enumeration defines the valid application states.  */typedef enum{    /* the do-nothing state */    TCPCLIENT_IDLE = 0,    /* Waits for the initialization of the TCP/IP stack to complete. */    TCPCLIENT_WAIT_INIT,                /* Do TCP connections. */    TCPCLIENT_WAITFOR_CONNECTION,    /* Get connections and send data */    TCPCLIENT_SERVING_CONNECTION,                TCPCLIENT_CLOSING_CONNECTION,                                    } TCPCLIENT_STATES;/******* Application Data *********/typedef struct{    /* Application's current state */    TCPCLIENT_STATES state;    TCP_SOCKET socket;    TCP_SOCKET_INFO sktinfo;} TCPCLIENTDATA;void TCPCLIENT_Initialize ( void );void TCPCLIENT_SM ( void );#endif /* _TCPCLIENT_H *//**************************************************** End of File */
+/*********************************************************/
+/*********************************************************/
+/*    Figure 8-10.  tcpclient.h                           */
+/*********************************************************/
+/*********************************************************/
+/**********************************************************
   File Name:
     tcpclient.c
 **********************************************************/
@@ -548,37 +785,924 @@ void TCPCLIENT_SM ( void )
 /*    Figure 9-15.  httpnet.c                            */
 /*********************************************************/
 /*********************************************************/
-/********************************************************************File Name:    httpnet.c********************************************************************/// ******************************************************************// Section: Included Files// ******************************************************************#include "app.h"// ******************************************************************// Section: Global Data Definitions// ******************************************************************// ******************************************************************/* Application Data  */HTTPNETDATA httpnetdata;extern APPDATA appData;extern CLKDATA clkData;extern STACKDATA stackdata;#define APP_SYS_FS_NVM_VOL          "/dev/nvma1"#define APP_SYS_FS_MOUNT_POINT      "/mnt/mchpSite1"#define APP_SYS_FS_TYPE             MPFS2#define APP_SYS_FS_TYPE_STRING      "MPFS2"// ******************************************************************// Section: Application Initialization and State Machine Functions// ******************************************************************void HTTPNET_Initialize ( void ){    // Place the application state machine in its initial state.    httpnetdata.state = HTTPNET_MOUNT_DISK;}/********************************************************************  Function:    void HTTPNET_SM( void )   // the state machine********************************************************************/void HTTPNET_SM ( void ){    SYS_STATUS          tcpipStat;    switch(httpnetdata.state)    {         case HTTPNET_IDLE:            break;        case HTTPNET_MOUNT_DISK:            if(SYS_FS_Mount(APP_SYS_FS_NVM_VOL, APP_SYS_FS_MOUNT_POINT, APP_SYS_FS_TYPE, 0, NULL) == 0)            {               httpnetdata.state = HTTPNET_WAIT_INIT;               LogMsg("The %s File System is mounted", APP_SYS_FS_TYPE_STRING);            }            break;        case HTTPNET_WAIT_INIT:            tcpipStat = TCPIP_STACK_Status(sysObj.tcpip);            if(tcpipStat < 0)            {   // some error occurred                LogMsg("APP: TCP/IP stack initialization failed!");                httpnetdata.state = HTTPNET_IDLE;            }            else if(tcpipStat == SYS_STATUS_READY)            {                // now that the stack is ready                 // register the application HTTP processing                HTTP_APP_Initialize();                LogMsg("HTTPNET initialized OK");                httpnetdata.state = HTTPNET_TRANSACT;            }            break;        case HTTPNET_TRANSACT:            break;        default:            break;    }}/************************************************************* * HTTP_NET Processing *************************************************************/// Sticky status message variable.// This is used to indicated whether or not the previous POST operation was// successful.  The application uses these to store status messages when a// POST operation redirects.  This lets the application provide status messages// after a redirect, when connection instance data has already been lost.//static bool lastSuccess = false;// Stick status message variable.  See lastSuccess for details.//static bool lastFailure = false;// Number of buffers to be used by the app for dynamic variable callbacks// #define HTTP_APP_DYNVAR_BUFFERS_NO      4#define HTTP_APP_DYNVAR_BUFFERS_NO      10// size of an allocated dynamic variable call back buffer// #define HTTP_APP_DYNVAR_BUFFER_SIZE     200#define HTTP_APP_DYNVAR_BUFFER_SIZE     400typedef struct{    uint16_t    busy;           // buffer is currently in process    uint16_t    bufferSize;     // size of the associated buffer    char        data[HTTP_APP_DYNVAR_BUFFER_SIZE];  // buffer for writing the dynamic variable callback content}HTTP_APP_DYNVAR_BUFFER;static HTTP_APP_DYNVAR_BUFFER   httpDynVarBuffers[HTTP_APP_DYNVAR_BUFFERS_NO];/******************************************************************  Section:    Application initialization and HTTP registration    Here the application registers with the HTTP module the functions    that will process the HTTP events (dynamic variables, SSI events, Post, Get, etc.)    Note that without registering the process functions with HTTP, there won't be any web page processing.    There is no default processing for a web page!*************************************************************/void HTTP_APP_Initialize(void){    int ix;    for(ix = 0; ix < sizeof(httpDynVarBuffers)/sizeof(*httpDynVarBuffers); ++ix)    {        httpDynVarBuffers[ix].busy = 0;        httpDynVarBuffers[ix].bufferSize = HTTP_APP_DYNVAR_BUFFER_SIZE;    }    TCPIP_HTTP_NET_USER_CALLBACK appHttpCBack =    {        .getExecute = TCPIP_HTTP_NET_ConnectionGetExecute,              // Process the "GET" command        .postExecute = TCPIP_HTTP_NET_ConnectionPostExecute,            // Process the "POST" command        .fileAuthenticate = TCPIP_HTTP_NET_ConnectionFileAuthenticate,  // Process the file authentication        .userAuthenticate = TCPIP_HTTP_NET_ConnectionUserAuthenticate,  // Process the user authentication        .dynamicPrint = TCPIP_HTTP_NET_DynPrint,                        // Process the dynamic variable callback        .dynamicAck = TCPIP_HTTP_NET_DynAcknowledge,                    // Acknowledgment function for when the dynamic variable processing is completed        .eventReport = TCPIP_HTTP_NET_EventReport,                      // HTTP Event notification callback    };    TCPIP_HTTP_NET_USER_HANDLE httpH = TCPIP_HTTP_NET_UserHandlerRegister(&appHttpCBack);    if(httpH == 0)        LogMsg("APP: Failed to register the HTTP callback!");}/********************************************************************  Section:    GET Form Handlers  *******************************************************************/TCPIP_HTTP_NET_IO_RESULT TCPIP_HTTP_NET_ConnectionGetExecute(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const TCPIP_HTTP_NET_USER_CALLBACK* pCBack){//    const uint8_t *ptr;    uint8_t filename[20];//    uint8_t* httpDataBuff;    // Load the file name    // Make sure uint8_t filename[] above is large enough for your longest name    SYS_FS_FileNameGet(TCPIP_HTTP_NET_ConnectionFileGet(connHandle), filename, sizeof(filename));//    httpDataBuff = TCPIP_HTTP_NET_ConnectionDataBufferGet(connHandle);    // If its the forms.htm page    return TCPIP_HTTP_NET_IO_RES_DONE;}/******************************************************************  Section:    POST Form Handlers  ******************************************************************/TCPIP_HTTP_NET_IO_RESULT TCPIP_HTTP_NET_ConnectionPostExecute(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const TCPIP_HTTP_NET_USER_CALLBACK* pCBack){    // Resolve which function to use and pass along    uint8_t filename[20];    // Load the file name    // Make sure uint8_t filename[] above is large enough for your longest name    SYS_FS_FileNameGet(TCPIP_HTTP_NET_ConnectionFileGet(connHandle), filename, sizeof(filename));    return TCPIP_HTTP_NET_IO_RES_DONE;}/******************************************************************  Section:    Authorization Handlers *****************************************************************//******************************************************************  Function:    uint8_t TCPIP_HTTP_NET_ConnectionFileAuthenticate(TCPIP_HTTP_NET_CONN_HANDLE connHandle, uint8_t *cFile, const TCPIP_HTTP_NET_USER_CALLBACK *pCBack) ******************************************************************/uint8_t TCPIP_HTTP_NET_ConnectionFileAuthenticate(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const char *cFile, const TCPIP_HTTP_NET_USER_CALLBACK *pCBack){    // If the filename begins with the folder "protect", then require auth    if(memcmp(cFile, (const void *)"protect", 7) == 0)        return 0x00;        // Authentication will be needed later    // You can match additional strings here to password protect other files.    // You could switch this and exclude files from authentication.    // You could also always return 0x00 to require auth for all files.    // You can return different values (0x00 to 0x79) to track "realms" for below.    return 0x80; // No authentication required}/********************************************************************  Function:    uint8_t TCPIP_HTTP_NET_ConnectionUserAuthenticate(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const char *cUser, const char *cPass, const TCPIP_HTTP_NET_USER_CALLBACK *pCBack) *******************************************************************/uint8_t TCPIP_HTTP_NET_ConnectionUserAuthenticate(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const char *cUser, const char *cPass, const TCPIP_HTTP_NET_USER_CALLBACK *pCBack){    if(strcmp(cUser,(const char *)"admin") == 0        && strcmp(cPass, (const char *)"microchip") == 0)        return 0x80;        // We accept this combination    // You can add additional user/pass combos here.    // If you return specific "realm" values above, you can base this    //   decision on what specific file or folder is being accessed.    // You could return different values (0x80 to 0xff) to indicate    //   various users or groups, and base future processing decisions    //   in TCPIP_HTTP_NET_ConnectionGetExecute/Post or HTTPPrint callbacks on this value.    return 0x00;            // Provided user/pass is invalid}// processing the HTTP reported events void TCPIP_HTTP_NET_EventReport(TCPIP_HTTP_NET_CONN_HANDLE connHandle, TCPIP_HTTP_NET_EVENT_TYPE evType, const void* evInfo, const struct _tag_TCPIP_HTTP_NET_USER_CALLBACK* pCBack){    char* evMsg = (char*)evInfo;    if(evMsg == 0)    {        evMsg = "none";    }    if(evType < 0) LogMsg("HTTP event: %d, info: %s", evType, evMsg);}// helper to get one of the application's dynamic buffer that are used in the // dynamic variables processingstatic HTTP_APP_DYNVAR_BUFFER* HTTP_APP_GetDynamicBuffer(void){    int ix;    HTTP_APP_DYNVAR_BUFFER* pDynBuffer;    pDynBuffer = httpDynVarBuffers;    for(ix = 0; ix < sizeof(httpDynVarBuffers)/sizeof(*httpDynVarBuffers); ix++)    {        if(pDynBuffer->busy == 0)        {            pDynBuffer->busy = 1;            return pDynBuffer;        }    }    return 0;}// processing the HTTP buffer acknowledgmentvoid TCPIP_HTTP_NET_DynAcknowledge(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const void* buffer, const struct _tag_TCPIP_HTTP_NET_USER_CALLBACK* pCBack){    HTTP_APP_DYNVAR_BUFFER* pDynBuffer = (HTTP_APP_DYNVAR_BUFFER*)((const uint8_t*)buffer - offsetof(HTTP_APP_DYNVAR_BUFFER, data));    pDynBuffer->busy = 0;}// Function that processes the dynamic variables// It uses the HTTP_APP_DynVarTbl[] for detecting which variable is currently processed// and what function should be launched.//TCPIP_HTTP_DYN_PRINT_RES TCPIP_HTTP_NET_DynPrint(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const TCPIP_HTTP_DYN_VAR_DCPT* vDcpt, const TCPIP_HTTP_NET_USER_CALLBACK* pCBack){    char ascdt[28];			// constructed ascii time string    uint16_t RandVal;    size_t nChars;    // process the dynamic variable name        if(strcmp(vDcpt->dynName, "led") == 0)    {        // Determine which LED        if(vDcpt->nArgs != 0 && vDcpt->dynArgs->argType == TCPIP_HTTP_DYN_ARG_TYPE_INT32)        {            int nLed;            switch(vDcpt->dynArgs->argInt32)            {                case 0:                    nLed = LED1_Get();                    break;                case 1:                    nLed = LED2_Get();                    break;                case 2:                    nLed = LED3_Get();                    break;                default:                    nLed = 0;            }            // Print the output            const char* ledMsg = nLed ? "1": "0";            TCPIP_HTTP_NET_DynamicWriteString(vDcpt, ledMsg, false);        }    }       else if(strcmp(vDcpt->dynName, "btn") == 0)    {        // Determine which button -- only 1 button on  Curiosity board        if(vDcpt->nArgs != 0 && vDcpt->dynArgs->argType == TCPIP_HTTP_DYN_ARG_TYPE_INT32)        {            int nBtn;            switch(vDcpt->dynArgs->argInt32)            {                case 0:                    nBtn = SW1_Get();                    break;                default:                    nBtn = 0;            }            // Print the output            const char* bMsg = nBtn ? "1": "0";            TCPIP_HTTP_NET_DynamicWriteString(vDcpt, bMsg, false);        }    }       else if(strcmp(vDcpt->dynName, "currentTime") == 0)    {        HTTP_APP_DYNVAR_BUFFER* pDynBuffer =  HTTP_APP_GetDynamicBuffer();        if(pDynBuffer == 0)        {   // failed to get a buffer; retry            return TCPIP_HTTP_DYN_PRINT_RES_AGAIN;         }        memset(ascdt, 0, sizeof(ascdt));        get_dt(ascdt);        strcpy(pDynBuffer->data, ascdt);        TCPIP_HTTP_NET_DynamicWrite(vDcpt, pDynBuffer->data, strlen(pDynBuffer->data), true);    }    else if(strcmp(vDcpt->dynName, "pot") == 0)    {        HTTP_APP_DYNVAR_BUFFER* pDynBuffer =  HTTP_APP_GetDynamicBuffer();        if(pDynBuffer == 0)        {   // failed to get a buffer; retry            return TCPIP_HTTP_DYN_PRINT_RES_AGAIN;         }        RandVal = (uint16_t)SYS_RANDOM_PseudoGet();        nChars = sprintf(pDynBuffer->data, "%d", RandVal);        TCPIP_HTTP_NET_DynamicWrite(vDcpt, pDynBuffer->data, nChars, true);    }    else if(strcmp(vDcpt->dynName, "idlecount") == 0)    {        HTTP_APP_DYNVAR_BUFFER* pDynBuffer =  HTTP_APP_GetDynamicBuffer();        if(pDynBuffer == 0)        {   // failed to get a buffer; retry            return TCPIP_HTTP_DYN_PRINT_RES_AGAIN;         }        sprintf(pDynBuffer->data, "%d", clkData.idlecntpersec);        TCPIP_HTTP_NET_DynamicWrite(vDcpt, pDynBuffer->data, strlen(pDynBuffer->data), true);    }    else if(strcmp(vDcpt->dynName, "iftype") == 0)    {        HTTP_APP_DYNVAR_BUFFER* pDynBuffer =  HTTP_APP_GetDynamicBuffer();        if(pDynBuffer == 0)        {   // failed to get a buffer; retry            return TCPIP_HTTP_DYN_PRINT_RES_AGAIN;         }        strcpy(pDynBuffer->data, stackdata.iftype);        TCPIP_HTTP_NET_DynamicWrite(vDcpt, pDynBuffer->data, strlen(pDynBuffer->data), true);    }    else if(strcmp(vDcpt->dynName, "hostname") == 0)    {        HTTP_APP_DYNVAR_BUFFER* pDynBuffer =  HTTP_APP_GetDynamicBuffer();        if(pDynBuffer == 0)        {   // failed to get a buffer; retry            return TCPIP_HTTP_DYN_PRINT_RES_AGAIN;         }        strcpy(pDynBuffer->data, stackdata.hostname);        TCPIP_HTTP_NET_DynamicWrite(vDcpt, pDynBuffer->data, strlen(pDynBuffer->data), true);    }    else if(strcmp(vDcpt->dynName, "ipaddr") == 0)    {        HTTP_APP_DYNVAR_BUFFER* pDynBuffer =  HTTP_APP_GetDynamicBuffer();        if(pDynBuffer == 0)        {   // failed to get a buffer; retry            return TCPIP_HTTP_DYN_PRINT_RES_AGAIN;         }        strcpy(pDynBuffer->data, stackdata.ipaddr);        TCPIP_HTTP_NET_DynamicWrite(vDcpt, pDynBuffer->data, strlen(pDynBuffer->data), true);    }    else if(strcmp(vDcpt->dynName, "builddate") == 0)            TCPIP_HTTP_NET_DynamicWriteString(vDcpt, __DATE__" "__TIME__, false);    else if(strcmp(vDcpt->dynName, "version") == 0)             TCPIP_HTTP_NET_DynamicWriteString(vDcpt, (const void*)TCPIP_STACK_VERSION_STR, false);    else if(strcmp(vDcpt->dynName, "drive") == 0)            TCPIP_HTTP_NET_DynamicWriteString(vDcpt, (const void*)APP_SYS_FS_MOUNT_POINT, false);    else if(strcmp(vDcpt->dynName, "fstype") == 0)            TCPIP_HTTP_NET_DynamicWriteString(vDcpt, (const void*)APP_SYS_FS_TYPE_STRING, false);    return TCPIP_HTTP_DYN_PRINT_RES_DONE;}/****************************************************************** End of File *//*********************************************************/
+/********************************************************************
+File Name:
+    httpnet.c
+********************************************************************/
+
+// ******************************************************************
+// Section: Included Files
+// ******************************************************************
+#include "app.h"
+
+// ******************************************************************
+// Section: Global Data Definitions
+// ******************************************************************
+
+// ******************************************************************
+/* Application Data  */
+
+HTTPNETDATA httpnetdata;
+extern APPDATA appData;
+extern CLKDATA clkData;
+extern STACKDATA stackdata;
+
+#define APP_SYS_FS_NVM_VOL          "/dev/nvma1"
+#define APP_SYS_FS_MOUNT_POINT      "/mnt/mchpSite1"
+#define APP_SYS_FS_TYPE             MPFS2
+#define APP_SYS_FS_TYPE_STRING      "MPFS2"
+
+
+// ******************************************************************
+// Section: Application Initialization and State Machine Functions
+// ******************************************************************
+
+void HTTPNET_Initialize ( void )
+{
+    // Place the application state machine in its initial state.
+    httpnetdata.state = HTTPNET_MOUNT_DISK;
+}
+
+/********************************************************************
+  Function:
+    void HTTPNET_SM( void )   // the state machine
+********************************************************************/
+
+void HTTPNET_SM ( void )
+{
+    SYS_STATUS          tcpipStat;
+
+    switch(httpnetdata.state)
+    {
+         case HTTPNET_IDLE:
+            break;
+
+        case HTTPNET_MOUNT_DISK:
+            if(SYS_FS_Mount(APP_SYS_FS_NVM_VOL, APP_SYS_FS_MOUNT_POINT, APP_SYS_FS_TYPE, 0, NULL) == 0)
+            {
+               httpnetdata.state = HTTPNET_WAIT_INIT;
+               LogMsg("The %s File System is mounted", APP_SYS_FS_TYPE_STRING);
+            }
+            break;
+        case HTTPNET_WAIT_INIT:
+            tcpipStat = TCPIP_STACK_Status(sysObj.tcpip);
+            if(tcpipStat < 0)
+            {   // some error occurred
+                LogMsg("APP: TCP/IP stack initialization failed!");
+                httpnetdata.state = HTTPNET_IDLE;
+            }
+            else if(tcpipStat == SYS_STATUS_READY)
+            {
+                // now that the stack is ready 
+                // register the application HTTP processing
+                HTTP_APP_Initialize();
+                LogMsg("HTTPNET initialized OK");
+                httpnetdata.state = HTTPNET_TRANSACT;
+            }
+            break;
+        case HTTPNET_TRANSACT:
+            break;
+        default:
+            break;
+    }
+}
+
+/*************************************************************
+ * HTTP_NET Processing
+ *************************************************************/
+// Sticky status message variable.
+// This is used to indicated whether or not the previous POST operation was
+// successful.  The application uses these to store status messages when a
+// POST operation redirects.  This lets the application provide status messages
+// after a redirect, when connection instance data has already been lost.
+//static bool lastSuccess = false;
+
+// Stick status message variable.  See lastSuccess for details.
+//static bool lastFailure = false;
+
+// Number of buffers to be used by the app for dynamic variable callbacks
+// #define HTTP_APP_DYNVAR_BUFFERS_NO      4
+#define HTTP_APP_DYNVAR_BUFFERS_NO      10
+
+// size of an allocated dynamic variable call back buffer
+// #define HTTP_APP_DYNVAR_BUFFER_SIZE     200
+#define HTTP_APP_DYNVAR_BUFFER_SIZE     400
+
+typedef struct
+{
+    uint16_t    busy;           // buffer is currently in process
+    uint16_t    bufferSize;     // size of the associated buffer
+    char        data[HTTP_APP_DYNVAR_BUFFER_SIZE];  // buffer for writing the dynamic variable callback content
+}HTTP_APP_DYNVAR_BUFFER;
+
+static HTTP_APP_DYNVAR_BUFFER   httpDynVarBuffers[HTTP_APP_DYNVAR_BUFFERS_NO];
+
+
+/******************************************************************
+  Section:
+    Application initialization and HTTP registration
+    Here the application registers with the HTTP module the functions
+    that will process the HTTP events (dynamic variables, SSI events, Post, Get, etc.)
+    Note that without registering the process functions with HTTP, there won't be any web page processing.
+    There is no default processing for a web page!
+*************************************************************/
+void HTTP_APP_Initialize(void)
+{
+    int ix;
+
+    for(ix = 0; ix < sizeof(httpDynVarBuffers)/sizeof(*httpDynVarBuffers); ++ix)
+    {
+        httpDynVarBuffers[ix].busy = 0;
+        httpDynVarBuffers[ix].bufferSize = HTTP_APP_DYNVAR_BUFFER_SIZE;
+    }
+
+    TCPIP_HTTP_NET_USER_CALLBACK appHttpCBack =
+    {
+        .getExecute = TCPIP_HTTP_NET_ConnectionGetExecute,              // Process the "GET" command
+        .postExecute = TCPIP_HTTP_NET_ConnectionPostExecute,            // Process the "POST" command
+        .fileAuthenticate = TCPIP_HTTP_NET_ConnectionFileAuthenticate,  // Process the file authentication
+        .userAuthenticate = TCPIP_HTTP_NET_ConnectionUserAuthenticate,  // Process the user authentication
+        .dynamicPrint = TCPIP_HTTP_NET_DynPrint,                        // Process the dynamic variable callback
+        .dynamicAck = TCPIP_HTTP_NET_DynAcknowledge,                    // Acknowledgment function for when the dynamic variable processing is completed
+        .eventReport = TCPIP_HTTP_NET_EventReport,                      // HTTP Event notification callback
+    };
+
+    TCPIP_HTTP_NET_USER_HANDLE httpH = TCPIP_HTTP_NET_UserHandlerRegister(&appHttpCBack);
+    if(httpH == 0)
+        LogMsg("APP: Failed to register the HTTP callback!");
+}
+
+/********************************************************************
+  Section:
+    GET Form Handlers
+  *******************************************************************/
+
+TCPIP_HTTP_NET_IO_RESULT TCPIP_HTTP_NET_ConnectionGetExecute(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const TCPIP_HTTP_NET_USER_CALLBACK* pCBack)
+{
+//    const uint8_t *ptr;
+    uint8_t filename[20];
+//    uint8_t* httpDataBuff;
+
+    // Load the file name
+    // Make sure uint8_t filename[] above is large enough for your longest name
+    SYS_FS_FileNameGet(TCPIP_HTTP_NET_ConnectionFileGet(connHandle), filename, sizeof(filename));
+
+//    httpDataBuff = TCPIP_HTTP_NET_ConnectionDataBufferGet(connHandle);
+
+    // If its the forms.htm page
+
+    return TCPIP_HTTP_NET_IO_RES_DONE;
+}
+
+/******************************************************************
+  Section:
+    POST Form Handlers
+  ******************************************************************/
+TCPIP_HTTP_NET_IO_RESULT TCPIP_HTTP_NET_ConnectionPostExecute(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const TCPIP_HTTP_NET_USER_CALLBACK* pCBack)
+{
+    // Resolve which function to use and pass along
+    uint8_t filename[20];
+
+    // Load the file name
+    // Make sure uint8_t filename[] above is large enough for your longest name
+    SYS_FS_FileNameGet(TCPIP_HTTP_NET_ConnectionFileGet(connHandle), filename, sizeof(filename));
+
+    return TCPIP_HTTP_NET_IO_RES_DONE;
+}
+
+/******************************************************************
+  Section:
+    Authorization Handlers
+ *****************************************************************/
+
+/******************************************************************
+  Function:
+    uint8_t TCPIP_HTTP_NET_ConnectionFileAuthenticate(TCPIP_HTTP_NET_CONN_HANDLE connHandle, uint8_t *cFile, const TCPIP_HTTP_NET_USER_CALLBACK *pCBack)
+ ******************************************************************/
+uint8_t TCPIP_HTTP_NET_ConnectionFileAuthenticate(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const char *cFile, const TCPIP_HTTP_NET_USER_CALLBACK *pCBack)
+{
+    // If the filename begins with the folder "protect", then require auth
+    if(memcmp(cFile, (const void *)"protect", 7) == 0)
+        return 0x00;        // Authentication will be needed later
+
+    // You can match additional strings here to password protect other files.
+    // You could switch this and exclude files from authentication.
+    // You could also always return 0x00 to require auth for all files.
+    // You can return different values (0x00 to 0x79) to track "realms" for below.
+
+    return 0x80; // No authentication required
+}
+
+/********************************************************************
+  Function:
+    uint8_t TCPIP_HTTP_NET_ConnectionUserAuthenticate(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const char *cUser, const char *cPass, const TCPIP_HTTP_NET_USER_CALLBACK *pCBack)
+ *******************************************************************/
+uint8_t TCPIP_HTTP_NET_ConnectionUserAuthenticate(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const char *cUser, const char *cPass, const TCPIP_HTTP_NET_USER_CALLBACK *pCBack)
+{
+    if(strcmp(cUser,(const char *)"admin") == 0
+        && strcmp(cPass, (const char *)"microchip") == 0)
+        return 0x80;        // We accept this combination
+
+    // You can add additional user/pass combos here.
+    // If you return specific "realm" values above, you can base this
+    //   decision on what specific file or folder is being accessed.
+    // You could return different values (0x80 to 0xff) to indicate
+    //   various users or groups, and base future processing decisions
+    //   in TCPIP_HTTP_NET_ConnectionGetExecute/Post or HTTPPrint callbacks on this value.
+
+    return 0x00;            // Provided user/pass is invalid
+}
+
+// processing the HTTP reported events 
+void TCPIP_HTTP_NET_EventReport(TCPIP_HTTP_NET_CONN_HANDLE connHandle, TCPIP_HTTP_NET_EVENT_TYPE evType, const void* evInfo, const struct _tag_TCPIP_HTTP_NET_USER_CALLBACK* pCBack)
+{
+    char* evMsg = (char*)evInfo;
+    if(evMsg == 0)
+    {
+        evMsg = "none";
+    }
+    if(evType < 0) LogMsg("HTTP event: %d, info: %s", evType, evMsg);
+}
+
+
+// helper to get one of the application's dynamic buffer that are used in the 
+// dynamic variables processing
+static HTTP_APP_DYNVAR_BUFFER* HTTP_APP_GetDynamicBuffer(void)
+{
+    int ix;
+    HTTP_APP_DYNVAR_BUFFER* pDynBuffer;
+
+    pDynBuffer = httpDynVarBuffers;
+    for(ix = 0; ix < sizeof(httpDynVarBuffers)/sizeof(*httpDynVarBuffers); ix++)
+    {
+        if(pDynBuffer->busy == 0)
+        {
+            pDynBuffer->busy = 1;
+            return pDynBuffer;
+        }
+    }
+
+    return 0;
+}
+
+// processing the HTTP buffer acknowledgment
+void TCPIP_HTTP_NET_DynAcknowledge(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const void* buffer, const struct _tag_TCPIP_HTTP_NET_USER_CALLBACK* pCBack)
+{
+    HTTP_APP_DYNVAR_BUFFER* pDynBuffer = (HTTP_APP_DYNVAR_BUFFER*)((const uint8_t*)buffer - offsetof(HTTP_APP_DYNVAR_BUFFER, data));
+
+    pDynBuffer->busy = 0;
+}
+
+// Function that processes the dynamic variables
+// It uses the HTTP_APP_DynVarTbl[] for detecting which variable is currently processed
+// and what function should be launched.
+//
+TCPIP_HTTP_DYN_PRINT_RES TCPIP_HTTP_NET_DynPrint(TCPIP_HTTP_NET_CONN_HANDLE connHandle, const TCPIP_HTTP_DYN_VAR_DCPT* vDcpt, const TCPIP_HTTP_NET_USER_CALLBACK* pCBack)
+{
+    char ascdt[28];			// constructed ascii time string
+    uint16_t RandVal;
+    size_t nChars;
+    // process the dynamic variable name
+    
+    if(strcmp(vDcpt->dynName, "led") == 0)
+    {
+        // Determine which LED
+        if(vDcpt->nArgs != 0 && vDcpt->dynArgs->argType == TCPIP_HTTP_DYN_ARG_TYPE_INT32)
+        {
+            int nLed;
+            switch(vDcpt->dynArgs->argInt32)
+            {
+                case 0:
+                    nLed = LEDY_Get();
+                    break;
+                default:
+                    nLed = 0;
+            }
+            // Print the output
+            const char* ledMsg = nLed ? "1": "0";
+            TCPIP_HTTP_NET_DynamicWriteString(vDcpt, ledMsg, false);
+        }
+    }   
+    else if(strcmp(vDcpt->dynName, "btn") == 0)
+    {
+        // Determine which button -- only 1 button on  Curiosity board
+        if(vDcpt->nArgs != 0 && vDcpt->dynArgs->argType == TCPIP_HTTP_DYN_ARG_TYPE_INT32)
+        {
+            int nBtn;
+            switch(vDcpt->dynArgs->argInt32)
+            {
+                case 0:
+                    nBtn = SW1_Get();
+                    break;
+                default:
+                    nBtn = 0;
+            }
+            // Print the output
+            const char* bMsg = nBtn ? "1": "0";
+            TCPIP_HTTP_NET_DynamicWriteString(vDcpt, bMsg, false);
+        }
+    }   
+    else if(strcmp(vDcpt->dynName, "currentTime") == 0)
+    {
+        HTTP_APP_DYNVAR_BUFFER* pDynBuffer =  HTTP_APP_GetDynamicBuffer();
+        if(pDynBuffer == 0)
+        {   // failed to get a buffer; retry
+            return TCPIP_HTTP_DYN_PRINT_RES_AGAIN; 
+        }
+
+        memset(ascdt, 0, sizeof(ascdt));
+        get_dt(ascdt);
+        strcpy(pDynBuffer->data, ascdt);
+        TCPIP_HTTP_NET_DynamicWrite(vDcpt, pDynBuffer->data, strlen(pDynBuffer->data), true);
+    }
+    else if(strcmp(vDcpt->dynName, "pot") == 0)
+    {
+        HTTP_APP_DYNVAR_BUFFER* pDynBuffer =  HTTP_APP_GetDynamicBuffer();
+        if(pDynBuffer == 0)
+        {   // failed to get a buffer; retry
+            return TCPIP_HTTP_DYN_PRINT_RES_AGAIN; 
+        }
+        RandVal = (uint16_t)SYS_RANDOM_PseudoGet();
+        nChars = sprintf(pDynBuffer->data, "%d", RandVal);
+        TCPIP_HTTP_NET_DynamicWrite(vDcpt, pDynBuffer->data, nChars, true);
+    }
+    else if(strcmp(vDcpt->dynName, "idlecount") == 0)
+    {
+        HTTP_APP_DYNVAR_BUFFER* pDynBuffer =  HTTP_APP_GetDynamicBuffer();
+        if(pDynBuffer == 0)
+        {   // failed to get a buffer; retry
+            return TCPIP_HTTP_DYN_PRINT_RES_AGAIN; 
+        }
+
+        sprintf(pDynBuffer->data, "%d", clkData.idlecntpersec);
+        TCPIP_HTTP_NET_DynamicWrite(vDcpt, pDynBuffer->data, strlen(pDynBuffer->data), true);
+    }
+    else if(strcmp(vDcpt->dynName, "iftype") == 0)
+    {
+        HTTP_APP_DYNVAR_BUFFER* pDynBuffer =  HTTP_APP_GetDynamicBuffer();
+        if(pDynBuffer == 0)
+        {   // failed to get a buffer; retry
+            return TCPIP_HTTP_DYN_PRINT_RES_AGAIN; 
+        }
+
+        strcpy(pDynBuffer->data, stackdata.iftype);
+        TCPIP_HTTP_NET_DynamicWrite(vDcpt, pDynBuffer->data, strlen(pDynBuffer->data), true);
+    }
+    else if(strcmp(vDcpt->dynName, "hostname") == 0)
+    {
+        HTTP_APP_DYNVAR_BUFFER* pDynBuffer =  HTTP_APP_GetDynamicBuffer();
+        if(pDynBuffer == 0)
+        {   // failed to get a buffer; retry
+            return TCPIP_HTTP_DYN_PRINT_RES_AGAIN; 
+        }
+
+        strcpy(pDynBuffer->data, stackdata.hostname);
+        TCPIP_HTTP_NET_DynamicWrite(vDcpt, pDynBuffer->data, strlen(pDynBuffer->data), true);
+    }
+    else if(strcmp(vDcpt->dynName, "ipaddr") == 0)
+    {
+        HTTP_APP_DYNVAR_BUFFER* pDynBuffer =  HTTP_APP_GetDynamicBuffer();
+        if(pDynBuffer == 0)
+        {   // failed to get a buffer; retry
+            return TCPIP_HTTP_DYN_PRINT_RES_AGAIN; 
+        }
+
+        strcpy(pDynBuffer->data, stackdata.ipaddr);
+        TCPIP_HTTP_NET_DynamicWrite(vDcpt, pDynBuffer->data, strlen(pDynBuffer->data), true);
+    }
+    else if(strcmp(vDcpt->dynName, "builddate") == 0)
+            TCPIP_HTTP_NET_DynamicWriteString(vDcpt, __DATE__" "__TIME__, false);
+    else if(strcmp(vDcpt->dynName, "version") == 0) 
+            TCPIP_HTTP_NET_DynamicWriteString(vDcpt, (const void*)TCPIP_STACK_VERSION_STR, false);
+    else if(strcmp(vDcpt->dynName, "drive") == 0)
+            TCPIP_HTTP_NET_DynamicWriteString(vDcpt, (const void*)APP_SYS_FS_MOUNT_POINT, false);
+    else if(strcmp(vDcpt->dynName, "fstype") == 0)
+            TCPIP_HTTP_NET_DynamicWriteString(vDcpt, (const void*)APP_SYS_FS_TYPE_STRING, false);
+
+    return TCPIP_HTTP_DYN_PRINT_RES_DONE;
+}
+
+/******************************************************************
+ End of File
+ */
+
+
 /*********************************************************/
-/*    Figure 10-8.  main.c for the MZEF_baseRTOS project */
+/*********************************************************/
+/*   Figure 10-9.  app.h for the SAME70_baseRTOS project */
 /*********************************************************/
 /*********************************************************/
-/*****************************************************************************  MPLAB Harmony Project Main Source File    File Name:    main.c*/// ***************************************************************************// Section: Included Files, external statements, and prototypes// ***************************************************************************#include "app.h"extern APPDATA appData;extern CLKDATA clkData;void CLK1000(void);      // the 1-second clockvoid CLK100(void);       // the 100 msecond clockvoid _APP_Tasks(  void *pvParameters  );// ***************************************************************************// Section: Main Entry Point// ***************************************************************************int main ( void ){    // Initialize all MPLAB Harmony modules, followed by the application(s).     SYS_Initialize ( NULL );        // calls APP_Initialize())    // create the FreeRTOS tasks - use the following template:    // xTaskCreate(vTaskCode,"task name",STACK_SIZE,NULL,TASK_PRIORITY,NULL );      xTaskCreate((TaskFunction_t) _APP_Tasks, "APP_TASKS", 4096, NULL, 3, NULL);    xTaskCreate((TaskFunction_t) CLK1000, "CLK1000", 1024, NULL, 1, NULL);    xTaskCreate((TaskFunction_t) CLK100, "CLK100", 1024, NULL, 2, NULL);        /**************     * Start RTOS *      **************/    // Start the scheduler.    vTaskStartScheduler();     // This function never returns.         /* This code will only be reached if the idle task could not be created     inside vTaskStartScheduler(). An infinite loop is used to assist debugging     by ensuring this scenario does not result in main() exiting. */    for( ;; );        /* return ( EXIT_FAILURE );  */}// ***************************************************************************// Section: The application state machine tasks// ***************************************************************************void _APP_Tasks(  void *pvParameters  ){    while(1)    {        appData.msec_cnt++;        vTaskDelay(1 / portTICK_PERIOD_MS);    }}/***************************************************************************** End of File*//*********************************************************/
+
+
+/********************************************************************
+  MPLAB Harmony Application Header File
+
+  Company:
+    Microchip Technology Inc.
+
+  File Name:
+    app.h
+
+*********************************************************************/
+
+#ifndef _APP_H
+#define _APP_H
+
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdarg.h>
+#include "definitions.h"
+#include "configuration.h"
+
+#ifdef __cplusplus  // Provide C++ Compatibility
+extern "C" {
+#endif
+    
+#define MAXMSGS  50
+#define MSGCOLS  120
+#define BOY2015  1420070400UL	//UNIX time at 1/1/2015 00:00:00
+
+// *******************************************************************
+// Section: State Definitions and State Data
+// *******************************************************************
+
+typedef struct
+{
+    int msec_cnt;                   // used in LogMsg
+    unsigned int unixsecs;          // used in LogMsg
+    char logmessages[MAXMSGS][MSGCOLS+1]; // space for MAXMSGS messages
+    int msgput;                // index of next message to be added
+    int msgget;         // index of next message to write to a com port 
+} APPDATA;
+
+
+#undef SYS_DEBUG_PRINT
+#define SYS_DEBUG_PRINT(level, fmt, ...)    do { if((level) <= SYS_ERROR_DEBUG) LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+#undef SYS_ERROR_PRINT
+#define SYS_ERROR_PRINT(level, fmt, ...)    do { if((level) <= SYS_ERROR_DEBUG) LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+#undef SYS_ERROR
+#define SYS_ERROR(level,fmt, ...)   do { if((level) <= SYS_ERROR_DEBUG) LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+#undef SYS_CONSOLE_PRINT
+#define SYS_CONSOLE_PRINT(fmt, ...)    do { LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+#undef SYS_CONSOLE_MESSAGE
+#define SYS_CONSOLE_MESSAGE(fmt, ...)    do { LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+// *******************************************************************
+// Section: Prototypes
+// *******************************************************************
+//void APP_Initialize ( void );
+//void APP_Tasks( void );
+void LogMsg(const char *format, ...);
+void get_dt(char *str);
+
+#endif /* _APP_H */
+
+#ifdef __cplusplus
+}
+#endif
+
+/********************************************************************
+ End of File
+ *//*********************************************************/
 /*********************************************************/
-/*   Figure 10-9.  tasks.c for the MZEF_baseRTOS project */
+/* Figure 10-10.  main.c for the SAME70_baseRTOS project */
 /*********************************************************/
 /*********************************************************/
-/*********************************************************************  File Name:    tasks.c    This file is blank.  The contents have been moved to main.c *********************************************************************//*********************************************************/
+/*********************************************************************
+  MPLAB Harmony Project Main Source File
+  
+  File Name:
+    main.c
+*/
+
+// *******************************************************************
+// Section: Included Files, external statements, and prototypes
+// *******************************************************************
+#include "app.h"
+
+extern APPDATA appData;
+
+void CLK1000(void);      // the 1-second clock
+void CLK100(void);       // the 100 msecond clock
+void _APP_Tasks(  void *pvParameters  );
+
+// *******************************************************************
+// Section: Main Entry Point
+// *******************************************************************
+
+int main ( void )
+{
+    // Initialize all MPLAB Harmony modules, followed by the application(s). 
+    SYS_Initialize ( NULL );        // calls APP_Initialize())
+
+    // create the FreeRTOS tasks - use the following template:
+    // xTaskCreate(vTaskCode,"task name",STACK_SIZE,NULL,TASK_PRIORITY,NULL );  
+
+    xTaskCreate((TaskFunction_t) _APP_Tasks, "APP_TASKS", 4096, NULL, 3, NULL);
+    xTaskCreate((TaskFunction_t) CLK1000, "CLK1000", 1024, NULL, 1, NULL);
+    xTaskCreate((TaskFunction_t) CLK100, "CLK100", 1024, NULL, 2, NULL);    
+
+
+    /**************
+     * Start RTOS * 
+     **************/
+    // Start the scheduler.
+    vTaskStartScheduler();     // This function never returns. 
+    
+    /* This code will only be reached if the idle task could not be created 
+    inside vTaskStartScheduler(). An infinite loop is used to assist debugging 
+    by ensuring this scenario does not result in main() exiting. */
+    for( ;; );    
+    /* return ( EXIT_FAILURE );  */
+}
+
+// ***************************************************************************
+// Section: The application state machine tasks
+// ***************************************************************************
+
+void _APP_Tasks(  void *pvParameters  )
+{
+    while(1)
+    {
+        appData.msec_cnt++;
+        vTaskDelay(1 / portTICK_PERIOD_MS);
+    }
+}
+
+/*****************************************************************************
+ End of File
+*/
+/*********************************************************/
 /*********************************************************/
-/*   Figure 10-10.  clks.c for the MZEF_baseRTOS project */
+/*   Figure 10-11.  tasks.c for the MZEF_baseRTOS project */
 /*********************************************************/
 /*********************************************************/
-/********************************************************************  MPLAB Harmony Application Source File    File Name:    clks.c ********************************************************************/#include "app.h"extern APPDATA appData;CLKDATA clkData;#define LED4BLACK   {LED4B_Set();LED4G_Set();LED4R_Set();}#define LED4WHITE   {LED4B_Clear();LED4G_Clear();LED4R_Clear();}#define LED4RED     {LED4B_Set();LED4G_Set();LED4R_Clear();}#define LED4GREEN   {LED4B_Set();LED4G_Clear();LED4R_Set();}#define LED4BLUE    {LED4B_Clear();LED4G_Set();LED4R_Set();}#define LED4YELLOW  {LED4B_Set();LED4G_Clear();LED4R_Clear();}#define LED4MAGENTA {LED4B_Clear();LED4G_Set();LED4R_Clear();}#define LED4CYAN    {LED4B_Clear();LED4G_Clear();LED4R_Set();}//********************************************************************// Section: Application routines//********************************************************************void CLKS_Initialize ( void ){        clkData.cpucycles = 0;    clkData.last_CP0 = 0;    clkData.idlecnt = 0;    clkData.idlecntpersec = 0;    clkData.clkstate = CLKS_STATE_INIT;     }// routine to monitor the switches and set the associated LEDvoid CLK100(void){    while(1)    {        if(!SW1_Get())  LED1_Toggle();        if(!SW2_Get())  LED2_Toggle();        if(!SW3_Get())  LED3_Toggle();        if(!SW4_Get())          {            LED1_Set();     // OFF            LED2_Set();     // OFF            LED3_Set();     // OFF        }        vTaskDelay( pdMS_TO_TICKS( 100 ) );    }}/* This task should execute every 1000 milliseconds. Time is measuredin ticks. The pdMS_TO_TICKS macro is used to convert millisecondsinto ticks. xLastWakeTime is automatically updated within vTaskDelayUntil() so is not explicitly updated by the task. */void CLK1000(void){    int substate = 0;    // initialize the clkData    clkData.cpucycles = 0;    clkData.last_CP0 = 0;    clkData.idlecnt = 0;    clkData.idlecntpersec = 0;    TickType_t xLastWakeTime;    const TickType_t xPeriod = pdMS_TO_TICKS( 1000 );    /* The xLastWakeTime variable needs to be initialized with      the current tick count. Note that this is the only time the     variable is written to. After this, xLastWakeTime is updated     automatically internally within vTaskDelayUntil(). */    xLastWakeTime = xTaskGetTickCount();    for( ;; )    {            // Perform the periodic actions here.         // cycles/sec        clkData.cpucycles = _CP0_GET_COUNT()-clkData.last_CP0;         // store the current value        clkData.last_CP0 = _CP0_GET_COUNT();          // store the idle counter        clkData.idlecntpersec = clkData.idlecnt;        // reset the idle counter        clkData.idlecnt = 0;                                // cycle the multicolored LED through all the combos        substate++;        if(substate == 1) LED4WHITE        else if(substate == 2) LED4RED        else if(substate == 3) LED4GREEN        else if(substate == 4) LED4BLUE        else if(substate == 5) LED4YELLOW        else if(substate == 6) LED4CYAN        else if(substate == 7) LED4MAGENTA        else LED4BLACK        if(substate > 7) substate = 0;        // toggle the LEDs while button is not pressed        if(SW4_Get())          {            LED1_Toggle();            LED2_Toggle();            LED3_Toggle();        }        // update the global time variables        appData.unixsecs++;    // update the UNIX time by 1 second        appData.msec_cnt = 0;  // sync with the unixsecs update                vTaskDelayUntil( &xLastWakeTime, xPeriod );        // possible alternative        // vTaskDelay( pdMS_TO_TICKS( 1000 ) );       }}/***************************************************************** End of File *//*********************************************************/
+/****************************************************************
+
+  File Name:
+    tasks.c
+
+    This file is blank.  The contents have been moved to main.c
+ ****************************************************************/
+
+/*********************************************************/
+/*********************************************************/
+/*   Figure 10-11.  app.h for the SAME70_httpnetRTOS project */
+/*********************************************************/
+/*********************************************************/
+
+
+/********************************************************************
+  MPLAB Harmony Application Header File
+
+  Company:
+    Microchip Technology Inc.
+
+  File Name:
+    app.h
+
+*********************************************************************/
+
+#ifndef _APP_H
+#define _APP_H
+
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdarg.h>
+#include "definitions.h"
+#include "configuration.h"
+
+#ifdef __cplusplus  // Provide C++ Compatibility
+extern "C" {
+#endif
+    
+#define MAXMSGS  50
+#define MSGCOLS  120
+#define BOY2015  1420070400UL	//UNIX time at 1/1/2015 00:00:00
+
+// *******************************************************************
+// Section: State Definitions and State Data
+// *******************************************************************
+
+typedef struct
+{
+    int msec_cnt;                   // used in LogMsg
+    unsigned int unixsecs;          // used in LogMsg
+    char logmessages[MAXMSGS][MSGCOLS+1]; // space for MAXMSGS messages
+    int msgput;                // index of next message to be added
+    int msgget;         // index of next message to write to a com port 
+} APPDATA;
+
+
+#undef SYS_DEBUG_PRINT
+#define SYS_DEBUG_PRINT(level, fmt, ...)    do { if((level) <= SYS_ERROR_DEBUG) LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+#undef SYS_ERROR_PRINT
+#define SYS_ERROR_PRINT(level, fmt, ...)    do { if((level) <= SYS_ERROR_DEBUG) LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+#undef SYS_ERROR
+#define SYS_ERROR(level,fmt, ...)   do { if((level) <= SYS_ERROR_DEBUG) LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+#undef SYS_CONSOLE_PRINT
+#define SYS_CONSOLE_PRINT(fmt, ...)    do { LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+#undef SYS_CONSOLE_MESSAGE
+#define SYS_CONSOLE_MESSAGE(fmt, ...)    do { LogMsg(fmt, ##__VA_ARGS__); } while (0)
+
+// *******************************************************************
+// Section: Prototypes
+// *******************************************************************
+//void APP_Initialize ( void );
+//void APP_Tasks( void );
+void LogMsg(const char *format, ...);
+void get_dt(char *str);
+
+#endif /* _APP_H */
+
+#ifdef __cplusplus
+}
+#endif
+
+/********************************************************************
+ End of File
+ */
+/*********************************************************/
 /*********************************************************/
 /* Figure 10-13. main.c for the MZEF_httpnetRTOS project */
 /*********************************************************/
 /*********************************************************/
-/*****************************************************************************  MPLAB Harmony Project Main Source File    File Name:    main.c*/// ***************************************************************************// Section: Included Files, external statements, and prototypes// ***************************************************************************#include "app.h"extern APPDATA appData;extern CLKDATA clkData;void CLK1000(void);      // the 1-second clockvoid CLK100(void);       // the 100 msecond clockvoid _APP_Tasks(  void *pvParameters  );// ***************************************************************************// Section: Main Entry Point// ***************************************************************************int main ( void ){    // Initialize all MPLAB Harmony modules, followed by the application(s).     SYS_Initialize ( NULL );        // calls APP_Initialize())    CDC_Initialize();    STACK_Initialize();    HTTPNET_Initialize();        // create the FreeRTOS tasks - use the following template:    // xTaskCreate(vTaskCode,"task name",STACK_SIZE,NULL,TASK_PRIORITY,NULL );      xTaskCreate((TaskFunction_t) _APP_Tasks, "APP_TASKS", 8192, NULL, 3, NULL);    xTaskCreate((TaskFunction_t) CLK1000, "CLK1000", 1024, NULL, 1, NULL);    xTaskCreate((TaskFunction_t) CLK100, "CLK100", 1024, NULL, 2, NULL);          /**************     * Start RTOS *      **************/    // Start the scheduler.    vTaskStartScheduler();     // This function never returns.         /* This code will only be reached if the idle task could not be created     inside vTaskStartScheduler(). An infinite loop is used to assist debugging     by ensuring this scenario does not result in main() exiting. */    for( ;; );        /* return ( EXIT_FAILURE );  */}// ***************************************************************************// Section: The application state machine tasks// ***************************************************************************void _APP_Tasks(  void *pvParameters  ){    while(1)    {        appData.msec_cnt++;               // The SYS_Tasks        DRV_MEMORY_Tasks(sysObj.drvMemory0);        NET_PRES_Tasks(sysObj.netPres);              TCPIP_STACK_Task(sysObj.tcpip);        DRV_MIIM_Tasks(sysObj.drvMiim);        DRV_USBHS_Tasks(sysObj.drvUSBHSObject);        USB_DEVICE_Tasks(sysObj.usbDevObject0);        SYS_FS_Tasks();                        // The application tasks        CDC_SM();        STACK_SM();        HTTPNET_SM();        vTaskDelay(1 / portTICK_PERIOD_MS);    }}/***************************************************************************** End of File*//*********************************************************/
+
+/*********************************************************************
+  MPLAB Harmony Project Main Source File
+  
+  File Name:
+    main.c
+*/
+
+// *******************************************************************
+// Section: Included Files, external statements, and prototypes
+// *******************************************************************
+#include "app.h"
+
+APPDATA appData;
+
+void CLK1000(void);      // the 1-second clock
+void CLK100(void);       // the 100 msecond clock
+void _APP_Tasks(  void *pvParameters  );
+void APP_Initialize ( void );
+// *******************************************************************
+// Section: Main Entry Point
+// *******************************************************************
+
+int main ( void )
+{
+    // Init the application data
+    APP_Initialize();
+
+    // Initialize all MPLAB Harmony modules, followed by the application(s)
+    // state machines
+    SYS_Initialize ( NULL );        // calls APP_Initialize())
+    CDC_Initialize();
+    STACK_Initialize();
+    HTTPNET_Initialize();
+    
+    // create the FreeRTOS tasks - use the following template:
+    // xTaskCreate(vTaskCode,"task name",STACK_SIZE,NULL,TASK_PRIORITY,NULL );  
+
+    xTaskCreate((TaskFunction_t) _APP_Tasks, "APP_TASKS", 8192, NULL, 3, NULL);
+    xTaskCreate((TaskFunction_t) CLK1000, "CLK1000", 1024, NULL, 1, NULL);
+    xTaskCreate((TaskFunction_t) CLK100, "CLK100", 1024, NULL, 2, NULL);    
+  
+    /**************
+     * Start RTOS * 
+     **************/
+    // Start the scheduler.
+    vTaskStartScheduler();     // This function never returns. 
+    
+    /* This code will only be reached if the idle task could not be created 
+    inside vTaskStartScheduler(). An infinite loop is used to assist debugging 
+    by ensuring this scenario does not result in main() exiting. */
+    for( ;; );    
+    /* return ( EXIT_FAILURE );  */
+}
+
+// ***************************************************************************
+// Section: The application state machine tasks
+// ***************************************************************************
+
+void _APP_Tasks(  void *pvParameters  )
+{
+    while(1)
+    {
+        appData.msec_cnt++;
+       
+        // The SYS_Tasks
+        DRV_MEMORY_Tasks(sysObj.drvMemory0);
+        NET_PRES_Tasks(sysObj.netPres);      
+        TCPIP_STACK_Task(sysObj.tcpip);
+        DRV_MIIM_Tasks(sysObj.drvMiim);
+        DRV_USBHSV1_Tasks(sysObj.drvUSBHSV1Object);
+        USB_DEVICE_Tasks(sysObj.usbDevObject0);
+        SYS_FS_Tasks();        
+        
+        // The application tasks
+        CDC_SM();
+        STACK_SM();
+        HTTPNET_SM();
+        vTaskDelay(1 / portTICK_PERIOD_MS);
+    }
+}
+
+void CLK100(void)
+{
+    while(1)
+    {
+        if(!SW1_Get())  LEDY_Toggle();
+        vTaskDelay( pdMS_TO_TICKS( 100 ) );
+    }
+}
+
+/* This task should execute every 1000 milliseconds. Time is measured
+in ticks. The pdMS_TO_TICKS macro is used to convert milliseconds
+into ticks. xLastWakeTime is automatically updated within 
+vTaskDelayUntil() so is not explicitly updated by the task. */
+
+void CLK1000(void)
+{
+    TickType_t xLastWakeTime;
+    const TickType_t xPeriod = pdMS_TO_TICKS( 1000 );
+    /* The xLastWakeTime variable needs to be initialized with  
+    the current tick count. Note that this is the only time the 
+    variable is written to. After this, xLastWakeTime is updated 
+    automatically internally within vTaskDelayUntil(). */
+
+    xLastWakeTime = xTaskGetTickCount();
+    for( ;; )
+    {    
+        // Perform the periodic actions here. 
+
+        // toggle the LEDs while button is not pressed
+        if(SW1_Get())  LEDY_Toggle();
+
+        // update the global time variables
+        appData.unixsecs++;    // update the UNIX time by 1 second
+        appData.msec_cnt = 0;  // sync with the unixsecs update
+        
+        vTaskDelayUntil( &xLastWakeTime, xPeriod );
+        // possible alternative
+        // vTaskDelay( pdMS_TO_TICKS( 1000 ) );   
+    }
+}
+
+// *******************************************************************
+// Section: Application Local Functions
+// *******************************************************************
+#define DAYSECS    86400        // seconds per day
+#define YRSECS    DAYSECS*365    // seconds per year
+
+int dmon[13] = {31,28,31,30,31,30,31,31,30,31,30,31,0};
+const char mond[12][4]={"JAN","FEB","MAR","APR","MAY","JUN", "JUL","AUG","SEP","OCT","NOV","DEC"};
+const char *badtime = "**-***-**** **:**:**.***";
+
+//*****************************************************************
+// Add a time tag and write a log message into the message buffer
+//*****************************************************************
+void APP_Initialize ( void )
+{
+    appData.msec_cnt = 0;
+    appData.unixsecs = BOY2015;     // temporary for now   
+    appData.msgget = 0;
+    appData.msgput = 0;
+    memset(appData.logmessages, 0, sizeof(appData.logmessages));
+}
+
+void LogMsg(const char *format, ...)
+{
+    int len = 0;
+    char ascdt[28];            // constructed ascii time string
+    char tmpBuf[MSGCOLS+1];
+    char str[MSGCOLS-30];
+    memset(ascdt, 0, sizeof(ascdt));
+    memset(tmpBuf, 0, sizeof(tmpBuf));
+    memset(str, 0, sizeof(str));
+
+    get_dt(tmpBuf);
+
+    va_list args = (va_list){0};
+
+    va_start( args, format );
+
+    len = vsnprintf(str, MSGCOLS-30, format, args);     // leave space for \n\r
+
+    va_end( args );
+
+    if (len > 0 && len < MSGCOLS-30)
+    {
+        str[len] = '\0';
+        strncat(tmpBuf, str, MSGCOLS-30);    //do not overrun tmpBuf
+        strcat(tmpBuf,"\n\r");        
+        strcpy(appData.logmessages[appData.msgput], tmpBuf);
+        appData.msgput++;
+        if(appData.msgput > (MAXMSGS-1)) appData.msgput = 0;  //rollover
+    }
+}
+
+void get_dt(char *str)
+{
+    int yr, mon, dd, hh, mm, ss;
+    long tsecs;
+    int isecs, ysecs, dsecs;
+    int err;
+    char timenow[28];
+
+    err = 0;        // no error (yet)
+    mon=0;
+    yr=0;
+    isecs=0;
+    ysecs = 0;
+    dsecs = 0;
+    tsecs = 0;
+    memset(timenow,0,sizeof(timenow));
+
+    tsecs = appData.unixsecs;
+    tsecs -= BOY2015;
+    // get the year, month, day
+    for(yr=2015,isecs=0; yr<2100; yr++)
+    {
+        ysecs = YRSECS;
+            // adjust for leap year
+        if((yr%4) == 0) {ysecs += DAYSECS; dmon[1]++;}    
+        if((isecs+ysecs) > tsecs)    // tsecs are in the current year
+        {
+            tsecs -= isecs;
+            break; // found the current year
+        }
+        else isecs += ysecs;    // add a year and keep looking
+    }
+    if(yr > 2099)
+    {
+//        LogMsg("Date/Time error finding the year");
+        err = 1;
+    }
+    else
+    {
+        for(mon=0,isecs=0; mon<12; mon++)
+        {
+              dsecs = dmon[mon]*DAYSECS;
+              if((isecs + dsecs) > tsecs)
+              {
+                tsecs -= isecs;
+                break;
+              }
+              else isecs += dsecs;    // add a month and keep looking
+        }
+        if(mon > 11)
+        {
+//            LogMsg("Date/Time error finding the month");
+              err = 1;
+        }
+    }
+
+    // get the hh:mm:ss
+    dd = tsecs/DAYSECS;
+    tsecs -= (dd*DAYSECS);
+    dd++;                   // days start at 1
+    hh = tsecs/3600;
+    tsecs -= hh*3600;
+    mm = tsecs/60;
+    tsecs -= mm*60;
+    ss = tsecs;
+    if(ss < 0) err=1;
+
+    if(err) strcpy(timenow,badtime);
+    else    sprintf(timenow,"%02d-%s-%04d %02d:%02d:%02d.%03d ",
+                   dd,mond[mon],yr,hh,mm,ss,appData.msec_cnt);
+    // transfer the results back to the calling program
+    strcpy(str,timenow);
+    return;
+}
+
+/*****************************************************************************
+ End of File
+*/
+/*********************************************************/
 /*********************************************************/
 /* Figure 10-14. tasks.c for the MZEF_httpnetRTOS project*/
 /*********************************************************/
 /*********************************************************/
 /*********************************************************************  File Name:    tasks.c    This file is blank.  The contents have been moved to main.c *********************************************************************//*********************************************************/
-/*********************************************************/
-/* Figure 10-15.  clks.c for the MZEF_httpnetRTOS project */
-/*********************************************************/
-/*********************************************************/
-/********************************************************************  MPLAB Harmony Application Source File    File Name:    clks.c ********************************************************************/#include "app.h"extern APPDATA appData;CLKDATA clkData;#define LED4BLACK   {LED4B_Set();LED4G_Set();LED4R_Set();}#define LED4WHITE   {LED4B_Clear();LED4G_Clear();LED4R_Clear();}#define LED4RED     {LED4B_Set();LED4G_Set();LED4R_Clear();}#define LED4GREEN   {LED4B_Set();LED4G_Clear();LED4R_Set();}#define LED4BLUE    {LED4B_Clear();LED4G_Set();LED4R_Set();}#define LED4YELLOW  {LED4B_Set();LED4G_Clear();LED4R_Clear();}#define LED4MAGENTA {LED4B_Clear();LED4G_Set();LED4R_Clear();}#define LED4CYAN    {LED4B_Clear();LED4G_Clear();LED4R_Set();}//********************************************************************// Section: Application routines//********************************************************************void CLKS_Initialize ( void ){        clkData.cpucycles = 0;    clkData.last_CP0 = 0;    clkData.idlecnt = 0;    clkData.idlecntpersec = 0;    clkData.clkstate = CLKS_STATE_INIT;     }// routine to monitor the switches and set the associated LEDvoid CLK100(void){    while(1)    {        if(!SW1_Get())  LED1_Toggle();        if(!SW2_Get())  LED2_Toggle();        if(!SW3_Get())  LED3_Toggle();        if(!SW4_Get())          {            LED1_Set();     // OFF            LED2_Set();     // OFF            LED3_Set();     // OFF        }        vTaskDelay( pdMS_TO_TICKS( 100 ) );    }}/* This task should execute every 1000 milliseconds. Time is measuredin ticks. The pdMS_TO_TICKS macro is used to convert millisecondsinto ticks. xLastWakeTime is automatically updated within vTaskDelayUntil() so is not explicitly updated by the task. */void CLK1000(void){    int substate = 0;    // initialize the clkData    clkData.cpucycles = 0;    clkData.last_CP0 = 0;    clkData.idlecnt = 0;    clkData.idlecntpersec = 0;    TickType_t xLastWakeTime;    const TickType_t xPeriod = pdMS_TO_TICKS( 1000 );    /* The xLastWakeTime variable needs to be initialized with      the current tick count. Note that this is the only time the     variable is written to. After this, xLastWakeTime is updated     automatically internally within vTaskDelayUntil(). */    xLastWakeTime = xTaskGetTickCount();    for( ;; )    {            // Perform the periodic actions here.         // cycles/sec        clkData.cpucycles = _CP0_GET_COUNT()-clkData.last_CP0;         // store the current value        clkData.last_CP0 = _CP0_GET_COUNT();          // store the idle counter        clkData.idlecntpersec = clkData.idlecnt;        // reset the idle counter        clkData.idlecnt = 0;                                // cycle the multicolored LED through all the combos        substate++;        if(substate == 1) LED4WHITE        else if(substate == 2) LED4RED        else if(substate == 3) LED4GREEN        else if(substate == 4) LED4BLUE        else if(substate == 5) LED4YELLOW        else if(substate == 6) LED4CYAN        else if(substate == 7) LED4MAGENTA        else LED4BLACK        if(substate > 7) substate = 0;        // toggle the LEDs while button is not pressed        if(SW4_Get())          {            LED1_Toggle();            LED2_Toggle();            LED3_Toggle();        }        // update the global time variables        appData.unixsecs++;    // update the UNIX time by 1 second        appData.msec_cnt = 0;  // sync with the unixsecs update                vTaskDelayUntil( &xLastWakeTime, xPeriod );        // possible alternative        // vTaskDelay( pdMS_TO_TICKS( 1000 ) );       }}/***************************************************************** End of File *//*********************************************************/
 /*********************************************************/
 /*  END SOURCE CODE FOR LearnHv3 book                    */
 /*********************************************************/
