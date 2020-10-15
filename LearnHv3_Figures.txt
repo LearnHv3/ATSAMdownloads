@@ -493,6 +493,11 @@ void WriteLogMsgs(void);
 
 #endif /* _CDC_H */
 
+/********************************************************************
+ End of File
+ */
+
+
 /*********************************************************/
 /*********************************************************/
 /*    Figure 6-24.  cdc.c                                */
@@ -846,13 +851,14 @@ void WriteLogMsgs(void)
     appData.msgget++;
     if(appData.msgget > (MAXMSGS-1)) appData.msgget = 0;
 }
+
 /*****************************************************************
  End of File  */
 
 
 /*********************************************************/
 /*********************************************************/
-/*    Figure 7-48.  stack.h                              */
+/*    Figure 7-46.  stack.h                              */
 /*********************************************************/
 /*********************************************************/
 
@@ -903,7 +909,7 @@ void LogIPAddr(const char *nname, IPV4_ADDR ipv4addr);
 
 /*********************************************************/
 /*********************************************************/
-/*    Figure 7-49.  stack.c                              */
+/*    Figure 7-47.  stack.c                              */
 /*********************************************************/
 /*********************************************************/
 
@@ -1014,6 +1020,7 @@ void LogIPAddr(const char *nname, IPV4_ADDR ipv4addr)
    LogMsg("%s: %d.%d.%d.%d", nname, 
         ipv4addr.v[0], ipv4addr.v[1], ipv4addr.v[2], ipv4addr.v[3]); 
 }
+
 /*******************************************************************
  End of File
  */
@@ -2645,7 +2652,7 @@ TCPIP_HTTP_DYN_PRINT_RES TCPIP_HTTP_NET_DynPrint(TCPIP_HTTP_NET_CONN_HANDLE conn
 
 /*********************************************************/
 /*********************************************************/
-/* Figure 10-9.  main.c for the SAME70_baseRTOS project */
+/* Figure 10-10.  main.c for the SAME70_baseRTOS project */
 /*********************************************************/
 /*********************************************************/
 
@@ -2661,29 +2668,32 @@ TCPIP_HTTP_DYN_PRINT_RES TCPIP_HTTP_NET_DynPrint(TCPIP_HTTP_NET_CONN_HANDLE conn
 // *******************************************************************
 #include "app.h"
 
-extern APPDATA appData;
+APPDATA appData;
 
 void CLK1000(void);      // the 1-second clock
 void CLK100(void);       // the 100 msecond clock
 void _APP_Tasks(  void *pvParameters  );
-
+void APP_Initialize ( void );
 // *******************************************************************
 // Section: Main Entry Point
 // *******************************************************************
 
 int main ( void )
 {
-    // Initialize all MPLAB Harmony modules, followed by the application(s). 
-    SYS_Initialize ( NULL );        // calls APP_Initialize())
+    // Init the application data
+    APP_Initialize();
 
+    // Initialize all MPLAB Harmony modules, followed by the application(s)
+    // state machines
+    SYS_Initialize ( NULL );        // calls APP_Initialize())
+    
     // create the FreeRTOS tasks - use the following template:
     // xTaskCreate(vTaskCode,"task name",STACK_SIZE,NULL,TASK_PRIORITY,NULL );  
 
-    xTaskCreate((TaskFunction_t) _APP_Tasks, "APP_TASKS", 4096, NULL, 3, NULL);
+    xTaskCreate((TaskFunction_t) _APP_Tasks, "APP_TASKS", 8192, NULL, 3, NULL);
     xTaskCreate((TaskFunction_t) CLK1000, "CLK1000", 1024, NULL, 1, NULL);
     xTaskCreate((TaskFunction_t) CLK100, "CLK100", 1024, NULL, 2, NULL);    
-
-
+  
     /**************
      * Start RTOS * 
      **************/
@@ -2706,54 +2716,14 @@ void _APP_Tasks(  void *pvParameters  )
     while(1)
     {
         appData.msec_cnt++;
+       
+        // The SYS_Tasks
+        
+        // The application tasks
         vTaskDelay(1 / portTICK_PERIOD_MS);
     }
 }
 
-/*****************************************************************************
- End of File
-*/
-
-
-
-/*********************************************************/
-/*********************************************************/
-/*   Figure 10-10.  tasks.c for the SAME70_baseRTOS project */
-/*********************************************************/
-/*********************************************************/
-
-/****************************************************************
-
-  File Name:
-    tasks.c
-
-    This file is blank.  The contents have been moved to main.c
- ****************************************************************/
-
-/*********************************************************/
-/*********************************************************/
-/*   Figure 10-11.  clks.c for the SAME70_baseRTOS project */
-/*********************************************************/
-/*********************************************************/
-
-/****************************************************************
-  MPLAB Harmony Application Source File
-  
-  File Name:
-    clks.c
- ****************************************************************/
-#include "app.h"
-
-extern APPDATA appData;
-
-//   prototypes for the clks routines
-void CLK100(void);
-void CLK1000(void);
-
-//****************************************************************
-// Section: Application routines
-//****************************************************************
-// routine to monitor the switches and set the associated LED
 void CLK100(void)
 {
     while(1)
@@ -2795,15 +2765,162 @@ void CLK1000(void)
     }
 }
 
-/*****************************************************************
+// *******************************************************************
+// Section: Application Local Functions
+// *******************************************************************
+#define DAYSECS    86400        // seconds per day
+#define YRSECS    DAYSECS*365    // seconds per year
+
+int dmon[13] = {31,28,31,30,31,30,31,31,30,31,30,31,0};
+const char mond[12][4]={"JAN","FEB","MAR","APR","MAY","JUN", "JUL","AUG","SEP","OCT","NOV","DEC"};
+const char *badtime = "**-***-**** **:**:**.***";
+
+//*****************************************************************
+// Add a time tag and write a log message into the message buffer
+//*****************************************************************
+void APP_Initialize ( void )
+{
+    appData.msec_cnt = 0;
+    appData.unixsecs = BOY2015;     // temporary for now   
+    appData.msgget = 0;
+    appData.msgput = 0;
+    memset(appData.logmessages, 0, sizeof(appData.logmessages));
+}
+
+void LogMsg(const char *format, ...)
+{
+    int len = 0;
+    char ascdt[28];            // constructed ascii time string
+    char tmpBuf[MSGCOLS+1];
+    char str[MSGCOLS-30];
+    memset(ascdt, 0, sizeof(ascdt));
+    memset(tmpBuf, 0, sizeof(tmpBuf));
+    memset(str, 0, sizeof(str));
+
+    get_dt(tmpBuf);
+
+    va_list args = (va_list){0};
+
+    va_start( args, format );
+
+    len = vsnprintf(str, MSGCOLS-30, format, args);     // leave space for \n\r
+
+    va_end( args );
+
+    if (len > 0 && len < MSGCOLS-30)
+    {
+        str[len] = '\0';
+        strncat(tmpBuf, str, MSGCOLS-30);    //do not overrun tmpBuf
+        strcat(tmpBuf,"\n\r");        
+        strcpy(appData.logmessages[appData.msgput], tmpBuf);
+        appData.msgput++;
+        if(appData.msgput > (MAXMSGS-1)) appData.msgput = 0;  //rollover
+    }
+}
+
+void get_dt(char *str)
+{
+    int yr, mon, dd, hh, mm, ss;
+    long tsecs;
+    int isecs, ysecs, dsecs;
+    int err;
+    char timenow[28];
+
+    err = 0;        // no error (yet)
+    mon=0;
+    yr=0;
+    isecs=0;
+    ysecs = 0;
+    dsecs = 0;
+    tsecs = 0;
+    memset(timenow,0,sizeof(timenow));
+
+    tsecs = appData.unixsecs;
+    tsecs -= BOY2015;
+    // get the year, month, day
+    for(yr=2015,isecs=0; yr<2100; yr++)
+    {
+        ysecs = YRSECS;
+            // adjust for leap year
+        if((yr%4) == 0) {ysecs += DAYSECS; dmon[1]++;}    
+        if((isecs+ysecs) > tsecs)    // tsecs are in the current year
+        {
+            tsecs -= isecs;
+            break; // found the current year
+        }
+        else isecs += ysecs;    // add a year and keep looking
+    }
+    if(yr > 2099)
+    {
+//        LogMsg("Date/Time error finding the year");
+        err = 1;
+    }
+    else
+    {
+        for(mon=0,isecs=0; mon<12; mon++)
+        {
+              dsecs = dmon[mon]*DAYSECS;
+              if((isecs + dsecs) > tsecs)
+              {
+                tsecs -= isecs;
+                break;
+              }
+              else isecs += dsecs;    // add a month and keep looking
+        }
+        if(mon > 11)
+        {
+//            LogMsg("Date/Time error finding the month");
+              err = 1;
+        }
+    }
+
+    // get the hh:mm:ss
+    dd = tsecs/DAYSECS;
+    tsecs -= (dd*DAYSECS);
+    dd++;                   // days start at 1
+    hh = tsecs/3600;
+    tsecs -= hh*3600;
+    mm = tsecs/60;
+    tsecs -= mm*60;
+    ss = tsecs;
+    if(ss < 0) err=1;
+
+    if(err) strcpy(timenow,badtime);
+    else    sprintf(timenow,"%02d-%s-%04d %02d:%02d:%02d.%03d ",
+                   dd,mond[mon],yr,hh,mm,ss,appData.msec_cnt);
+    // transfer the results back to the calling program
+    strcpy(str,timenow);
+    return;
+}
+
+/*****************************************************************************
  End of File
- */
+*/
+
+
+/*********************************************************/
+/*********************************************************/
+/* Figure 10-11. tasks.c for the SAME70_baseRTOS project*/
+/*********************************************************/
+/*********************************************************/
+
+/*********************************************************************
+
+  File Name:
+    tasks.c
+
+    This file is blank.  The contents have been moved to main.c
+ *********************************************************************/
+
+/*****************************************************************************
+ End of File
+*/
 
 
 
 /*********************************************************/
 /*********************************************************/
-/* Figure 10-15. main.c for the SAME70_httpnetRTOS project */
+/* Figure 10-17. main.c for the SAME70_httpnetRTOS project */
 /*********************************************************/
 /*********************************************************/
 
@@ -3061,11 +3178,9 @@ void get_dt(char *str)
  End of File
 */
 
-
-
 /*********************************************************/
 /*********************************************************/
-/* Figure 10-16. tasks.c for the SAME70_httpnetRTOS project*/
+/* Figure 10-18. tasks.c for the SAME70_httpnetRTOS project*/
 /*********************************************************/
 /*********************************************************/
 
@@ -3077,10 +3192,14 @@ void get_dt(char *str)
     This file is blank.  The contents have been moved to main.c
  *********************************************************************/
 
+/*****************************************************************************
+ End of File
+*/
+
 
 /*********************************************************/
 /*********************************************************/
-/*  END SOURCE CODE FOR LearnHv3 book                    */
+/*  END SOURCE CODE FOR LearnHv3 BOOK                    */
 /*********************************************************/
 /*********************************************************/
 
